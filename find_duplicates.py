@@ -3,6 +3,16 @@ import hashlib
 import os
 import sys
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+try:
+    from tqdm import tqdm
+except ImportError:
+    print(
+        "Error: 'tqdm' is required. Install it with: pip install tqdm",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 def get_file_hash(filepath, chunk_size=65536):
@@ -12,13 +22,13 @@ def get_file_hash(filepath, chunk_size=65536):
         with open(filepath, "rb") as f:
             while chunk := f.read(chunk_size):
                 hasher.update(chunk)
-        return hasher.hexdigest()
+        return filepath, hasher.hexdigest()
     except (PermissionError, OSError):
-        return None
+        return filepath, None
 
 
-def find_duplicates(root_dir):
-    """Traverses deep directory structures and identifies duplicate files."""
+def find_duplicates(root_dir, max_workers=None):
+    """Traverses deep directory structures and identifies duplicate files in parallel."""
     size_map = defaultdict(list)
     duplicates = defaultdict(list)
 
@@ -36,19 +46,56 @@ def find_duplicates(root_dir):
                 except (PermissionError, OSError):
                     continue
 
-    # Pass 2: Hash files sharing the exact same size
+    # Filter out unique file sizes
     candidate_groups = [
         paths for paths in size_map.values() if len(paths) > 1
     ]
-    total_candidates = sum(len(paths) for paths in candidate_groups)
+    all_candidate_paths = [
+        path for group in candidate_groups for path in group
+    ]
+
+    total_candidates = len(all_candidate_paths)
     print(
-        f"Found {len(candidate_groups)} potential duplicate size groups ({total_candidates} files). Hashing content..."
+        f"Found {len(candidate_groups)} potential duplicate size groups ({total_candidates} files)."
     )
 
+    if not all_candidate_paths:
+        return duplicates
+
+    # Pass 2: Parallelized hashing phase
+    cpu_cores = os.cpu_count() or 1
+    if max_workers is None:
+        calc_workers = min(32, cpu_cores + 4)
+        print(
+            f"Threads: Using {calc_workers} worker threads (Auto-calculated: {cpu_cores} CPU cores + 4, capped at 32)."
+        )
+        workers = calc_workers
+    else:
+        print(f"Threads: Using {max_workers} worker threads (User-defined via --workers).")
+        workers = max_workers
+
+    file_hashes = {}
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(get_file_hash, path): path
+            for path in all_candidate_paths
+        }
+
+        with tqdm(
+            total=total_candidates, desc="Hashing content", unit="file"
+        ) as pbar:
+            for future in as_completed(futures):
+                filepath, file_hash = future.result()
+                if file_hash:
+                    file_hashes[filepath] = file_hash
+                pbar.update(1)
+
+    # Re-group by size first, then by hash
     for paths in candidate_groups:
         hash_map = defaultdict(list)
         for filepath in paths:
-            file_hash = get_file_hash(filepath)
+            file_hash = file_hashes.get(filepath)
             if file_hash:
                 hash_map[file_hash].append(filepath)
 
@@ -61,7 +108,7 @@ def find_duplicates(root_dir):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Find and optionally remove duplicate files in a directory."
+        description="Find and optionally remove duplicate files in a directory using parallel processing."
     )
     parser.add_argument(
         "directory",
@@ -72,6 +119,12 @@ def main():
         "--delete",
         action="store_true",
         help="Automatically delete duplicate files, leaving only one copy.",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Number of parallel worker threads (default: auto-detected CPU/IO threads).",
     )
 
     args = parser.parse_args()
@@ -84,7 +137,9 @@ def main():
         )
         sys.exit(1)
 
-    duplicate_results = find_duplicates(target_directory)
+    duplicate_results = find_duplicates(
+        target_directory, max_workers=args.workers
+    )
 
     if not duplicate_results:
         print("\nNo duplicate files found.")
@@ -96,7 +151,6 @@ def main():
     freed_space = 0
 
     for idx, (file_hash, paths) in enumerate(duplicate_results.items(), 1):
-        # Keep the path with the shortest file path string length as the original
         paths_sorted = sorted(paths, key=len)
         original = paths_sorted[0]
         duplicates_to_remove = paths_sorted[1:]
