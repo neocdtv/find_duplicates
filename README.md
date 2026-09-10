@@ -36,4 +36,4 @@ A fast, lightweight, and memory-efficient Python command-line utility designed t
    ```
 4. **Find duplicates and delete:**
    ```bash
-   python3 sort_media.py "/path/to/source_photos" --delete
+   python3 find_duplicates.py "/path/to/directory_with_duplicates" --delete
