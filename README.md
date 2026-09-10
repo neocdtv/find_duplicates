@@ -13,20 +13,27 @@ A fast, lightweight, and memory-efficient Python command-line utility designed t
   - Defaults to **dry-run mode** (read-only output) unless explicit deletion is enabled.
   - Automatically selects and retains the file with the shortest path string length as the original copy.
 - **Clear Disk Cleanup Metrics:** Reports total files removed and space freed in MB after deletion.
+- **Hashes In Parallel:** 
+- **Show hashing progress:**
 
 ---
 
-## Requirements
+## Installation & Setup
 
-- **Python 3.8+**
-- Standard Python libraries only (`argparse`, `hashlib`, `os`, `sys`, `collections`) -- no external `pip` dependencies required.
+1. **Clone or download** the script (`find_duplicates.py`) into your project directory.
+2. **Create and activate a virtual environment:**
+   ```bash
+   python3 -m venv venv
+   
+   # On macOS / Linux:
+   source venv/bin/activate
 
----
-
-## Installation
-
-Clone or download the repository, or simply save `find_duplicates.py` to your working directory.
-
-```bash
-git clone [https://github.com/your-repo/duplicate-file-finder.git](https://github.com/your-repo/duplicate-file-finder.git)
-cd duplicate-file-finder
+   pip3 install tqdm
+   ```
+3. **Find duplicates (default dry-run mode):**
+   ```bash
+   python3 find_duplicates.py "/path/to/directory_with_duplicates"
+   ```
+4. **Find duplicates and delete:**
+   ```bash
+   python3 sort_media.py "/path/to/source_photos" --delete
